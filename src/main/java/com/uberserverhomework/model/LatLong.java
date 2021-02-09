@@ -1,4 +1,4 @@
-package com.uberserverhomework;
+package com.uberserverhomework.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
@@ -8,9 +8,7 @@ public class LatLong {
   @JsonIgnore
   private double type;
 
-
   LatLong() {}
-
 
   public double getType() {
     return type;

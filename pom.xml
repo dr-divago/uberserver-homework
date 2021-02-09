@@ -20,7 +20,7 @@
     <logback-classic.version>1.2.3</logback-classic.version>
     <junit-jupiter.version>5.7.0</junit-jupiter.version>
 
-    <main.verticle>com.uberserverhomework.PublicApiMain</main.verticle>
+    <main.verticle>com.uberserverhomework.MainApp</main.verticle>
     <launcher.class>io.vertx.core.Launcher</launcher.class>
   </properties>
 
