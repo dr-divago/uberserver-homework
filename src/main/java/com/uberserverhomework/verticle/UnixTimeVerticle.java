@@ -1,5 +1,7 @@
 package com.uberserverhomework.verticle;
 
+import com.uberserverhomework.model.Time;
+import com.uberserverhomework.model.UnixTime;
 import io.reactivex.Completable;
 import io.vertx.core.eventbus.Message;
 import io.vertx.core.json.JsonObject;
@@ -13,6 +15,12 @@ public class UnixTimeVerticle extends AbstractVerticle {
 
     private static final Logger logger = LoggerFactory.getLogger(UnixTimeVerticle.class);
 
+    private Time time;
+
+    public UnixTimeVerticle(Time unixTime) {
+        time = unixTime;
+    }
+
     @Override
     public Completable rxStart() {
         logger.info("Started");
@@ -22,7 +30,7 @@ public class UnixTimeVerticle extends AbstractVerticle {
     }
 
     private void getUnixTime(Message<JsonObject> message) {
-        JsonObject unixTime = new JsonObject().put("now", Instant.now().toString());
+        JsonObject unixTime = new JsonObject().put("now", time.getNow());
         message.reply(unixTime);
     }
 }

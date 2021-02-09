@@ -1,5 +1,7 @@
 package com.uberserverhomework.verticle;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.uberserverhomework.model.LatLong;
@@ -9,11 +11,21 @@ import io.vertx.core.eventbus.Message;
 import io.vertx.core.json.JsonObject;
 import io.vertx.reactivex.circuitbreaker.CircuitBreaker;
 import io.vertx.reactivex.core.AbstractVerticle;
+import io.vertx.reactivex.ext.web.client.HttpResponse;
 import io.vertx.reactivex.ext.web.client.WebClient;
 import io.vertx.reactivex.ext.web.client.predicate.ResponsePredicate;
 import io.vertx.reactivex.ext.web.codec.BodyCodec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.validation.ConstraintViolation;
+import javax.validation.Validation;
+import javax.validation.Validator;
+import javax.validation.ValidatorFactory;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
 public class PointInTimeVerticle extends AbstractVerticle {
 
@@ -24,7 +36,8 @@ public class PointInTimeVerticle extends AbstractVerticle {
 
     private static final String VIP_EXTERNAL_ENDPOINT = "/v1/coords/";
 
-    private Cache<Integer, JsonObject> pointInTimeCache;
+    private Cache<Integer, LatLong> pointInTimeCache;
+    private ObjectMapper mapper;
 
     @Override
     public Completable rxStart() {
@@ -37,6 +50,7 @@ public class PointInTimeVerticle extends AbstractVerticle {
             .maximumSize(10_000)
             .build();
 
+        mapper = new ObjectMapper();
         getVertx().eventBus().consumer("point-in-time", this::pointInTime);
 
         return Completable.complete();
@@ -61,50 +75,95 @@ public class PointInTimeVerticle extends AbstractVerticle {
                     .timeout(5000)
                     .rxSend()
                     .subscribe(
-                        resp -> {
-                            cacheCoordinate(pointInTime, resp.body());
-                            transformAndReturn(message, resp.body());
+                        validResponse -> {
+                            manageResponse(validResponse, message, pointInTime);
                             promise.complete();
                         },
-                        err -> {
-                            recoveryFromCache(message, pointInTime);
-                            promise.fail(err);
+                        errResponse -> {
+                            Optional<LatLong> maybeLatLong = recoverFromCache(message, pointInTime);
+                            maybeLatLong.ifPresent( latLong -> {
+                                Optional<JsonObject> maybeJson = transformToJsonObject().apply(latLong);
+                                maybeJson.ifPresent( jsonObject -> message.reply(jsonObject));
+                            });
+                            promise.fail(errResponse);
                         }
                     ),
             err -> {
-                recoveryFromCache(message, pointInTime);
+                recoverFromCache(message, pointInTime);
                 return null;
             });
     }
 
-    private void cacheCoordinate(Integer pointInTime, JsonObject resp) {
-        logger.info("Caching coordinate");
-        pointInTimeCache.put(pointInTime, resp);
+    private void manageResponse(HttpResponse<JsonObject> resp, Message<JsonObject> message, Integer pointInTime ) {
+        Optional<LatLong> maybeLatLong = validateResponse(resp.body()).or( () -> recoverFromCache(message, pointInTime) );
+
+        maybeLatLong.ifPresent( latLong -> {
+            Optional<JsonObject> jsonObject =
+                cacheCoordinate()
+                    .andThen(transformToJsonObject())
+                    .apply(pointInTime, latLong);
+
+            message.reply(jsonObject.get());
+        } );
     }
 
-    private void transformAndReturn(Message<JsonObject> message, JsonObject pointInTime) {
+    private Optional<LatLong> validateResponse(JsonObject body) {
+        try {
+            LatLong latLong = body.mapTo(LatLong.class);
+            ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
+            Validator validator = factory.getValidator();
 
-        logger.info("Building json response..");
-        LatLong coordsObject = pointInTime.mapTo(LatLong.class);
+            Set<ConstraintViolation<LatLong>> violations = validator.validate(latLong);
+            if (!violations.isEmpty()) {
+                logger.error("Error validation Json {} violations: {}", body, violations.toString());
+                return Optional.empty();
+            }
 
-        JsonObject respJson = new JsonObject()
-            .put("source", "vip-db")
-            .put("gpsCoords", coordsObject);
-
-        message.reply(respJson);
+            return Optional.of(latLong);
+        } catch (Exception e) {
+            logger.error("Invalid Json {} exception {}", body, e);
+            return Optional.empty();
+        }
     }
 
-    private void recoveryFromCache(Message<JsonObject> message, Integer pointInTime) {
+    private BiFunction<Integer, LatLong, LatLong> cacheCoordinate() {
+        return (pointInTime, latLong) -> {
+            logger.info("Caching coordinate");
+            pointInTimeCache.put(pointInTime, latLong);
+            return latLong;
+        };
+    }
+
+    private Function<LatLong, Optional<JsonObject>> transformToJsonObject()  {
+        return latLong -> {
+            logger.info("Building json response..");
+
+            try {
+                String jsonInString = mapper.writeValueAsString(latLong);
+                JsonObject respJson = new JsonObject()
+                    .put("source", "vip-db")
+                    .put("gpsCoords", jsonInString);
+
+                return Optional.of(respJson);
+            } catch (JsonProcessingException e) {
+                logger.error(e.getMessage());
+            }
+            return Optional.empty();
+        };
+    }
+
+    private Optional<LatLong> recoverFromCache(Message<JsonObject> message, Integer pointInTime) {
         logger.info("Error connecting to external service! Trying to recover gps coords from the cache...");
 
-        JsonObject pointInTimeJson = pointInTimeCache.getIfPresent(pointInTime);
-        if (pointInTimeJson == null) {
+        LatLong latLong = pointInTimeCache.getIfPresent(pointInTime);
+        if (latLong == null) {
             logger.error("No cached data for pointInTime {}", pointInTime);
             message.fail(502, "No cached data for " + pointInTime);
-        } else {
-            logger.info("Found something in cache, return to client");
-            transformAndReturn(message, pointInTimeJson);
+            return Optional.empty();
         }
+
+        logger.info("Found something in cache, return to client");
+        return Optional.of(latLong);
     }
 
     private void configureCircuitBreak() {
@@ -116,7 +175,7 @@ public class PointInTimeVerticle extends AbstractVerticle {
                 .setTimeout(5000)
                 .setResetTimeout(10000))
             .openHandler(v -> logger.info("open", pointInTimeCircuitBreakerName))
-            .halfOpenHandler(v -> logger.info("half open",pointInTimeCircuitBreakerName))
+            .halfOpenHandler(v -> logger.info("half open", pointInTimeCircuitBreakerName))
             .closeHandler(v -> logger.info("closed", pointInTimeCircuitBreakerName));
     }
 }

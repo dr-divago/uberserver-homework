@@ -1,5 +1,6 @@
 package com.uberserverhomework;
 
+import com.uberserverhomework.model.UnixTime;
 import com.uberserverhomework.verticle.PointInTimeVerticle;
 import com.uberserverhomework.verticle.PublicApiVerticle;
 import com.uberserverhomework.verticle.UnixTimeVerticle;
@@ -26,7 +27,7 @@ public class MainApp {
                 error -> logger.error("Error starting PointInTime {}", error)
             );
 
-        vertx.rxDeployVerticle(new UnixTimeVerticle())
+        vertx.rxDeployVerticle(new UnixTimeVerticle(new UnixTime()))
             .subscribe(
                 ok -> logger.info("UnixTimeVerticle running"),
                 error -> logger.error("Error starting UnixTimeVerticle {}", error)

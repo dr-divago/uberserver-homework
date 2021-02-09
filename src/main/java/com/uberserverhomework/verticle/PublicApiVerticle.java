@@ -3,7 +3,6 @@ package com.uberserverhomework.verticle;
 import io.reactivex.Completable;
 import io.vertx.core.eventbus.DeliveryOptions;
 import io.vertx.core.eventbus.ReplyException;
-import io.vertx.core.eventbus.ReplyFailure;
 import io.vertx.core.json.JsonObject;
 import io.vertx.reactivex.core.AbstractVerticle;
 import io.vertx.reactivex.ext.web.Router;
@@ -36,26 +35,34 @@ public class PublicApiVerticle extends AbstractVerticle {
     }
 
     private void getUnixTime(RoutingContext ctx) {
-        initEventBus(ctx, "unix-time");
+        initEventBus(ctx, new JsonObject(), "unix-time");
     }
 
     private void pointInTime(RoutingContext ctx) {
-        initEventBus(ctx, "point-in-time");
+        try {
+            Integer pointInTime = Integer.parseInt(ctx.pathParam("pointInTime"));
+            if (pointInTime <= 0) {
+                ctx.fail(400, new Throwable("pointInTime should be a positive number"));
+            }
+            JsonObject messageObject = new JsonObject().put("pointInTime", pointInTime);
+            initEventBus(ctx, messageObject, "point-in-time");
+        } catch (NumberFormatException e) {
+            ctx.fail(400, new Throwable("pointInTime should be a number"));
+        }
     }
 
-    private void initEventBus(RoutingContext ctx, String address) {
-        getVertx().eventBus().<JsonObject>request(address, "", new DeliveryOptions().setSendTimeout(5000), reply -> {
+    private void initEventBus(RoutingContext ctx, JsonObject message, String address) {
+        getVertx().eventBus().<JsonObject>request(address, message, new DeliveryOptions().setSendTimeout(5000), reply -> {
             if (reply.succeeded()) {
                 ctx.response()
                     .putHeader("Content-Type", "application/json")
                     .end(reply.result().body().encode());
-            }
-            else {
+            } else {
                 if (reply.cause() instanceof ReplyException) {
-                    ReplyException replyException = (ReplyException)reply.cause();
+                    ReplyException replyException = (ReplyException) reply.cause();
                     switch (replyException.failureType()) {
                         case TIMEOUT: {
-                            //should never happen unless there is a bug in PointInTime
+                            //should never happen unless there is a bug in PointInTimeVerticle
                             ctx.response().setStatusCode(504).end();
                             break;
                         }
@@ -68,8 +75,7 @@ public class PublicApiVerticle extends AbstractVerticle {
                             ctx.response().setStatusCode(500).end();
                         }
                     }
-                }
-                else {
+                } else {
                     //it should never happen unless a bug of vertx
                     ctx.response().setStatusCode(500).end();
                 }
