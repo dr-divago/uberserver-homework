@@ -20,8 +20,7 @@
         <logback-classic.version>1.2.3</logback-classic.version>
         <junit-jupiter.version>5.7.0</junit-jupiter.version>
 
-        <main.verticle>com.uberserverhomework.MainApp</main.verticle>
-        <launcher.class>io.vertx.core.Launcher</launcher.class>
+        <exec.mainClass>com.uberserverhomework.MainApp</exec.mainClass>
     </properties>
 
     <dependencyManagement>
@@ -155,8 +154,7 @@
                                 <transformer
                                     implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <manifestEntries>
-                                        <Main-Class>${launcher.class}</Main-Class>
-                                        <Main-Verticle>${main.verticle}</Main-Verticle>
+                                        <Main-Class>${exec.mainClass}</Main-Class>
                                     </manifestEntries>
                                 </transformer>
                                 <transformer
@@ -178,13 +176,22 @@
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>${exec-maven-plugin.version}</version>
-                <configuration>
-                    <mainClass>io.vertx.core.Launcher</mainClass>
-                    <arguments>
-                        <argument>run</argument>
-                        <argument>${main.verticle}</argument>
-                    </arguments>
-                </configuration>
+                <executions>
+                    <execution>
+                        <!-- run the application using the fat jar -->
+                        <id>run-app</id>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>java</executable>
+                            <arguments>
+                                <argument>-jar</argument>
+                                <argument>target/${project.artifactId}-${project.version}-fat.jar</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

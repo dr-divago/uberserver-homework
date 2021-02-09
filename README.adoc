@@ -1,31 +1,36 @@
 = Uberserver-homework
 
-image:https://img.shields.io/badge/vert.x-4.0.2-purple.svg[link="https://vertx.io"]
-
-This application was generated using http://start.vertx.io
-
 == Building
 
 To launch your tests:
 ```
-./mvnw clean test
+./mvn clean test
 ```
 
 To package your application:
 ```
-./mvnw clean package
+./mvn clean package
 ```
 
 To run your application:
 ```
-./mvnw clean compile exec:java
+./mvn clean compile exec:java
 ```
 
-== Help
-
-* https://vertx.io/docs/[Vert.x Documentation]
-* https://stackoverflow.com/questions/tagged/vert.x?sort=newest&pageSize=15[Vert.x Stack Overflow]
-* https://groups.google.com/forum/?fromgroups#!forum/vertx[Vert.x User Group]
-* https://gitter.im/eclipse-vertx/vertx-users[Vert.x Gitter]
+Technology used and design:
+I decided to use vertx library for the implemention. It is a non-blocking-io library based on multireactor pattern.
+Being not blocking and event based it allowed to deal with all the issue that a high performance service can deal with,
+specifically better usage of resource, better latency and reactive. Vertx is based on Verticle, I implemented 3
+Verticles. One as a gateway where the endpoint are exposed (/v1/now and V1/VIP/{point-in-time}),one for getting the Unix
+Time for the /v1/now endpoint, one for dealing with the external system that return the gps coordinate.
+To be sure that the system is reactive and responsive I have added a CircuitBreaker to deal with the failing
+communication with the external system to not overload the system in case of long failing (for example external system
+is down for extended time). If there are errors (timeout, wrong return code or wrong response) the system try to recover
+the last position from a local cache. The cache is updated every time a new gps coordinate is returned, and it is used
+every time an error occur. Having divided the work in 3 verticle, they can be scaled indipendently so in case the
+endpoint /v1/VIP/{point-in-time} have a greater load it can be scaled with 2 or more instance. The issue in this case
+the cache will be replicated as well but it is not sync, so it could happened that one instance have a older value for
+the coordinate of the other one. In that case a distribuited cache will be a better choice but it will need a more complex
+implementation.
 
 
